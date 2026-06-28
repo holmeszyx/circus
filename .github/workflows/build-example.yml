@@ -15,6 +15,10 @@ on:
         description: Branch to build from
         required: false
         default: master
+      build-args:
+        description: Arguments to pass to the build script
+        required: false
+        default: ''
       prerelease:
         description: Mark as prerelease
         type: boolean
@@ -38,6 +42,7 @@ jobs:
           access-token: ${{ secrets.CI_PAT }}
           ref: ${{ inputs.branch }}
           build-script: build.sh
+          build-args: ${{ inputs.build-args }}
           artifact-glob: dist/*
           release-tag: ${{ inputs.release-tag }}
           prerelease: ${{ inputs.prerelease }}

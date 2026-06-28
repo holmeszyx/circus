@@ -18,6 +18,10 @@ inputs:
     description: Path to the build script inside the source repository (relative to its root).
     required: false
     default: build.sh
+  build-args:
+    description: Arguments to pass to the build script (space-separated).
+    required: false
+    default: ''
   artifact-glob:
     description: Shell glob (relative to source repository root) matching files to publish.
     required: false
@@ -92,8 +96,10 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.access-token }}
         RELEASE_TAG: ${{ inputs.release-tag }}
+        BUILD_ARGS: ${{ inputs.build-args }}
       run: |
-        bash "${{ inputs.build-script }}"
+        IFS=' ' read -ra args <<< "$BUILD_ARGS"
+        bash "${{ inputs.build-script }}" "${args[@]}"
 
     - name: Publish release and artifacts
       id: release

@@ -2,7 +2,7 @@
 # Copy this file per target, rename it, and wire up the corresponding secrets.
 # Required repo secrets:
 #   CI_PAT              - fine-grained token (Contents read/write + Metadata read)
-#   EXAMPLE_REPO_URL    - HTTPS clone URL of the target repository
+#   WIP_REPO_URL        - HTTPS clone URL of the target repository
 name: Build-WIP
 
 on:
@@ -15,6 +15,10 @@ on:
         description: Branch to build from
         required: false
         default: master
+      build-args:
+        description: Arguments to pass to the build script
+        required: false
+        default: "apk"
       prerelease:
         description: Mark as prerelease
         type: boolean
@@ -37,7 +41,8 @@ jobs:
           repo-url: ${{ secrets.WIP_REPO_URL }}
           access-token: ${{ secrets.CI_PAT }}
           ref: ${{ inputs.branch }}
-          build-script: script/build.sh apk
+          build-script: script/build.sh
+          build-args: ${{ inputs.build-args }}
           artifact-glob: dist/*
           release-tag: ${{ inputs.release-tag }}
           prerelease: ${{ inputs.prerelease }}
