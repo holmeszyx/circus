@@ -1,0 +1,141 @@
+name: Run Flow
+description: >-
+  Runs a CI flow: checks out a source repository using a token, runs its build
+  script, and publishes artifacts to a release in that repository.
+
+inputs:
+  repo-url:
+    description: HTTPS clone URL of the source repository (store in a secret).
+    required: true
+  access-token:
+    description: Token with Contents read/write on the source repository (store in a secret).
+    required: true
+  ref:
+    description: Branch, tag, or SHA to check out from the source repository.
+    required: false
+    default: master
+  build-script:
+    description: Path to the build script inside the source repository (relative to its root).
+    required: false
+    default: build.sh
+  artifact-glob:
+    description: Shell glob (relative to source repository root) matching files to publish.
+    required: false
+    default: dist/*
+  release-tag:
+    description: Tag name for the release.
+    required: true
+  release-name:
+    description: Release title. Defaults to the tag.
+    required: false
+    default: ''
+  release-notes:
+    description: Custom release notes. If empty, a default body with the commit SHA is generated.
+    required: false
+    default: ''
+  prerelease:
+    description: Mark the release as a prerelease.
+    required: false
+    default: 'false'
+  draft:
+    description: Create the release as a draft.
+    required: false
+    default: 'false'
+  make-latest:
+    description: Mark the release as 'latest'.
+    required: false
+    default: 'false'
+
+outputs:
+  release-url:
+    description: URL of the created or existing release.
+    value: ${{ steps.release.outputs.url }}
+  source-sha:
+    description: SHA of the source commit that was built.
+    value: ${{ steps.sha.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Parse repository slug
+      id: meta
+      shell: bash
+      env:
+        REPO_URL: ${{ inputs.repo-url }}
+      run: |
+        slug="$(printf '%s' "$REPO_URL" | sed -E 's#(https?://|git@)[^/]+[:/]##; s#\.git$##; s#^/*##; s#/*$##')"
+        if ! printf '%s' "$slug" | grep -Eq '^[^/]+/[^/]+$'; then
+          echo "::error::Could not parse owner/repo from the provided URL."
+          exit 1
+        fi
+        echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+    - name: Check out source repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ steps.meta.outputs.slug }}
+        token: ${{ inputs.access-token }}
+        ref: ${{ inputs.ref }}
+        path: src
+        fetch-depth: 1
+
+    - name: Capture source metadata
+      id: sha
+      shell: bash
+      working-directory: src
+      run: |
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Run build script
+      shell: bash
+      working-directory: src
+      env:
+        GH_TOKEN: ${{ inputs.access-token }}
+        RELEASE_TAG: ${{ inputs.release-tag }}
+      run: |
+        bash "${{ inputs.build-script }}"
+
+    - name: Publish release and artifacts
+      id: release
+      shell: bash
+      working-directory: src
+      env:
+        GH_TOKEN: ${{ inputs.access-token }}
+        GH_REPO: ${{ steps.meta.outputs.slug }}
+        TAG: ${{ inputs.release-tag }}
+        SHA: ${{ steps.sha.outputs.sha }}
+        TITLE: ${{ inputs.release-name }}
+        NOTES: ${{ inputs.release-notes }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        DRAFT: ${{ inputs.draft }}
+        MAKE_LATEST: ${{ inputs.make-latest }}
+        GLOB: ${{ inputs.artifact-glob }}
+      run: |
+        set -euo pipefail
+        title="${TITLE:-$TAG}"
+        if [ -z "${NOTES}" ]; then
+          notes="Built from commit ${SHA} via circus CI ($(date -u +%Y-%m-%dT%H:%M:%SZ))."
+        else
+          notes="${NOTES}"
+        fi
+
+        flags=(--repo "$GH_REPO" --title "$title" --target "$SHA" --latest="$MAKE_LATEST" --notes "$notes")
+        if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+        if [ "$DRAFT" = "true" ]; then flags+=(--draft); fi
+
+        if ! gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+          gh release create "$TAG" "${flags[@]}"
+        fi
+
+        shopt -s nullglob
+        files=()
+        for f in $GLOB; do files+=("$f"); done
+        shopt -u nullglob
+
+        if [ "${#files[@]}" -gt 0 ]; then
+          gh release upload "$TAG" --repo "$GH_REPO" "${files[@]}" --clobber
+        else
+          echo "::warning::No files matched glob '$GLOB' in $PWD; release created without assets."
+        fi
+
+        echo "url=$(gh release view "$TAG" --repo "$GH_REPO" --json url -q .url)" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,44 @@
+# Template: manually-triggered build flow.
+# Copy this file per target, rename it, and wire up the corresponding secrets.
+# Required repo secrets:
+#   CI_PAT              - fine-grained token (Contents read/write + Metadata read)
+#   EXAMPLE_REPO_URL    - HTTPS clone URL of the target repository
+name: Build (example)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Tag for the release
+        required: true
+      branch:
+        description: Branch to build from
+        required: false
+        default: master
+      prerelease:
+        description: Mark as prerelease
+        type: boolean
+        default: false
+      draft:
+        description: Create as draft
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out circus
+        uses: actions/checkout@v4
+
+      - name: Run build flow
+        uses: ./.github/actions/run-flow
+        with:
+          repo-url: ${{ secrets.EXAMPLE_REPO_URL }}
+          access-token: ${{ secrets.CI_PAT }}
+          ref: ${{ inputs.branch }}
+          build-script: build.sh
+          artifact-glob: dist/*
+          release-tag: ${{ inputs.release-tag }}
+          prerelease: ${{ inputs.prerelease }}
+          draft: ${{ inputs.draft }}
